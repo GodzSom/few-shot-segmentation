@@ -15,6 +15,7 @@ from stylegan2_pytorch1 import model
 from GANDataLoader import GANDataLoader
 from torchvision.utils import save_image
 from kmeans import kmean_viz
+from torchvision import transforms
 
 
 parser = argparse.ArgumentParser(description='Add Some Values')
@@ -26,7 +27,7 @@ args = parser.parse_args()
 
 img_list = ['33', '180', '164', '197', '150', '138', '154', '37', '141', '32']
 img_list = ['33']#, args.im]
-fn = 'graph_cluster/'
+fn = 'graph_cluster2/'
 
 np_load_old = np.load
 np.load = lambda *a,**k: np_load_old(*a, allow_pickle=True, **k)
@@ -40,6 +41,11 @@ state_dict = torch.load(stylegan2_path)
 # writer = SummaryWriter("./results/models/logs/"+args.model_di_n)
 n_pic = 2
 
+transform = transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.Resize(size=512),
+                transforms.ToTensor()])
+
 
 def load_w(w_path, w_list):
     w = np.zeros((n_pic, 18, 512))
@@ -47,7 +53,17 @@ def load_w(w_path, w_list):
         w[i] = np.load(w_path + fn)
     return torch.from_numpy(w).float().cuda()
 
+def save_cluster(cluster):
+    cluster_im = torch.zeros((3,size,size))
+    for p in range(size):
+        for q in range(size):
+            cluster_im[0,p,q] = high_contrast_arr[(cluster[p,q])%52][0]/255.0
+            cluster_im[1,p,q] = high_contrast_arr[(cluster[p,q])%52][1]/255.0
+            cluster_im[2,p,q] = high_contrast_arr[(cluster[p,q])%52][2]/255.0
 
+    cluster_im = transform(cluster_im)
+    save_image(cluster_im, fn + 'cluster/'+str(i)+'_'+str(clus_n-del_clus)+'.png')
+    # print(fn + 'cluster/'+str(i)+'_'+str(clus_n-del_clus)+'.png')
 
 with torch.no_grad():
     '''
@@ -66,7 +82,7 @@ with torch.no_grad():
 
     #B
     # models.retain_layers(['convs.4', 'convs.5','convs.6','convs.7'])
-    models.retain_layers(['convs.5','convs.7'])
+    models.retain_layers(['convs.7'])
 
     # models.retain_layers(['convs.0','convs.1','convs.2','convs.3','convs.4',
     #                         'convs.5'])
@@ -132,56 +148,42 @@ high_contrast_arr = np.array(high_contrast, dtype=np.uint8)
 
 cossim = torch.nn.CosineSimilarity(dim=0, eps=1e-6)
 num_chan = 1024
-size = 128
+size = 64
 
 # data = torch.zeros((1,num_chan, size, size))#.cuda()
 # target = torch.zeros((size, size))
 i = 0
 for (data, target) in train_loader:
-    print('-------')
-    # assert False
     data = data
     # print(data[i])
     target = target#.cuda()
     i = i+1
     # print(data.shape)
 
-
-# edges = torch.zeros((size, size, 4))
+########################################################################
+#create and save the cossim images
+# edges = torch.zeros((size, size, 2))
 #
 # for i in range(size):
 #     for j in range(size):
 #         if i+1 < size:
 #             edges[i,j,0] = cossim(data[0,:,i,j], data[0,:,i+1,j])
-#         # else: edges[i,j,0] = 0.88
 #         if j+1 < size:
 #             edges[i,j,1] = cossim(data[0,:,i,j], data[0,:,i,j+1])
-#         # else: edges[i,j,1] = 0.88
-#         if i > 0:
-#             edges[i,j,2] = cossim(data[0,:,i,j], data[0,:,i-1,j])
-#         # else: edges[i,j,2] = 0.88
-#         if j > 0:
-#             edges[i,j,3] = cossim(data[0,:,i,j], data[0,:,i,j-1])
-#         # else: edges[i,j,3] = 0.88
 #
 # torch.save(edges, fn + 'edges_33')
+# assert False
+######################################################################
 
 
 edges = torch.load(fn + 'edges_33').numpy()
-print(np.max(edges), np.min(edges))
-# print(torch.min(edges[:-1,:,0]))#0.9429
-# print(torch.min(edges[:,:-1,1]))#0.8877
-# print(torch.min(edges[1:,:,2]))
-# print(torch.min(edges[:,1:,3]))
+# print(np.max(edges), np.min(edges))
 #
 # edges = edges - 0.88
 # edges = edges/torch.max(edges)
-# save_image(edges[:,:,0], fn+'A.png')
-# save_image(edges[:,:,1], fn+'B.png')
-# save_image(edges[:,:,2], fn+'C.png')
-# save_image(edges[:,:,3], fn+'D.png')
-# print(torch.min(edges[:-1,:,0]))
-
+# save_image(edges[:,:,0], fn+'1.png')
+# save_image(edges[:,:,1], fn+'2.png')
+# assert False
 sorted_index = edges.argsort(axis=None, kind='mergesort')
 sorted_index = np.vstack(np.unravel_index(sorted_index, edges.shape)).T
 
@@ -189,77 +191,65 @@ print(sorted_index[-1])# s s d
 print(sorted_index.shape)
 
 print(edges[sorted_index[-1,0],sorted_index[-1,1],sorted_index[-1,2]])
-# assert False
 
 n = -1
 clus_n = 1
 del_clus = 0
 cluster = torch.zeros((size,size)).type(torch.IntTensor)
 
-cluster_im = torch.zeros((3,size,size))
+
 i=0
+s1 = [1,0,-1,0]
+s2 = [0,1,0,-1]
 # for i in range(200):
 while(torch.min(cluster)==0):
-    print('--------------------------------------------')
+    # print('--------------------------------------------')
+    print(edges[sorted_index[n,0],sorted_index[n,1],sorted_index[n,2]])
     idex1 = sorted_index[n]
+    idex2 = idex1.copy()
     # print(idex1)
-    if idex1[2] == 0:
-        idex2 = idex1.copy()
-        idex2[0] = idex2[0] + 1
-    elif idex1[2] == 1:
-        idex2 = idex1.copy()
-        idex2[1] = idex2[1] + 1
-    elif idex1[2] == 2:
-        idex2 = idex1.copy()
-        idex2[0] = idex2[0] - 1
-    elif idex1[2] == 3:
-        idex2 = idex1.copy()
-        idex2[1] = idex2[1] - 1
 
-    if cluster[idex1[0], idex1[1]] == 0 and cluster[idex2[0], idex2[1]] == 0:
-        cluster[idex1[0], idex1[1]] = clus_n
-        cluster[idex2[0], idex2[1]] = clus_n
+    for m in range(2):
+        if idex1[2] == m:
+            idex2[0] = idex2[0] + s1[m]
+            idex2[1] = idex2[1] + s2[m]
+
+    idex = np.vstack((idex1,idex2))
+    # print(idex.shape, idex1.shape)
+    # assert False
+
+    c1 = cluster[idex[0,0], idex[0,1]]
+    c2 = cluster[idex[1,0], idex[1,1]]
+
+    if c1 == 0 and c2 == 0:
+        cluster[idex[0,0], idex[0,1]] = clus_n
+        cluster[idex[1,0], idex[1,1]] = clus_n
         clus_n = clus_n + 1
-        print('new cluster ', idex1, idex2)
+        print('new cluster ', idex1, idex2, idex[0,2])
 
-    elif cluster[idex1[0], idex1[1]] == 0:
-        cluster[idex1[0], idex1[1]] = cluster[idex2[0], idex2[1]]
-        print('add to cluster 1 ', idex1, idex2)
+    elif c1 == 0:
+        cluster[idex[0,0], idex[0,1]] = c2
+        print('add to cluster 1 ', idex1, idex2, idex[0,2])
 
-    elif cluster[idex2[0], idex2[1]] == 0:
-        cluster[idex2[0], idex2[1]] = cluster[idex1[0], idex1[1]]
-        print('add to cluster 2 ', idex1, idex2)
+    elif c2 == 0:
+        cluster[idex[1,0], idex[1,1]] = c1
+        print('add to cluster 2 ', idex1, idex2, idex[0,2])
 
-    elif cluster[idex1[0], idex1[1]] != cluster[idex2[0], idex2[1]]:
-        cluster[cluster==cluster[idex2[0], idex2[1]]] = cluster[idex1[0], idex1[1]].clone()
+    elif c1 != c2:
+        cluster[cluster==c2] = c1
         del_clus = del_clus + 1
-        print('merge cluster ', idex1, idex2)
-    else:
-        print('none ', idex1, idex2)
+        print('merge cluster ', idex1, idex2, idex[0,2])
+    # else:
+        # print('none ', idex1, idex2)
+
+
 
     n = n - 1
     i = i + 1
 
-    if i%1000 == 0:
+    if i%100 == 0:
         print(i, clus_n, del_clus, idex1, edges[idex1[0],idex1[1],idex1[2]])
+        save_cluster(cluster)
 
-
-        for p in range(size):
-            for q in range(size):
-                # print(cluster_im[:,p,q])
-                # print(high_contrast_arr[cluster[p,q]])
-                cluster_im[0,p,q] = high_contrast_arr[(cluster[p,q])%52][0]/255.0
-                cluster_im[1,p,q] = high_contrast_arr[(cluster[p,q])%52][1]/255.0
-                cluster_im[2,p,q] = high_contrast_arr[(cluster[p,q])%52][2]/255.0
-        save_image(cluster_im, fn + 'cluster/'+str(i)+'_'+str(clus_n-del_clus)+'.png')
 print(i, clus_n, del_clus, idex1, edges[idex1[0],idex1[1],idex1[2]])
-
-
-for p in range(size):
-    for q in range(size):
-        # print(cluster_im[:,p,q])
-        # print(high_contrast_arr[cluster[p,q]])
-        cluster_im[0,p,q] = high_contrast_arr[(cluster[p,q])%52][0]/255.0
-        cluster_im[1,p,q] = high_contrast_arr[(cluster[p,q])%52][1]/255.0
-        cluster_im[2,p,q] = high_contrast_arr[(cluster[p,q])%52][2]/255.0
-save_image(cluster_im, fn + 'cluster/'+str(i)+'_'+str(clus_n-del_clus)+'.png')
+save_cluster(cluster)
